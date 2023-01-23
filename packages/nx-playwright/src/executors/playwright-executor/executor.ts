@@ -1,6 +1,5 @@
 import { ExecutorContext } from '@nrwl/devkit';
 import { exec } from 'child_process';
-import { promisify } from 'util';
 import { startDevServer } from './lib/start-dev-server';
 import executorSchema from './schema.json';
 import { PlaywrightExecutorSchema } from './schema-types';
@@ -35,32 +34,23 @@ export default async function executor(
   context: ExecutorContext,
 ) {
   await startDevServer(options, context);
+  const flags = getFlags(options);
+  const runnerCommand = options.packageRunner ?? executorSchema.properties.packageRunner.default;
+  const path = options.path ?? executorSchema.properties.path.default;
 
-  const success = await Promise.resolve()
-    .then(async () => {
-      const flags = getFlags(options);
-      const runnerCommand =
-        options.packageRunner ?? executorSchema.properties.packageRunner.default;
-      const path = options.path ?? executorSchema.properties.path.default;
+  const command =
+    `${runnerCommand} playwright test ${path} --config ${options.e2eFolder}/playwright.config.ts ${flags} && echo ${PASS_MARKER}`.trim();
 
-      const command =
-        `${runnerCommand} playwright test ${path} --config ${options.e2eFolder}/playwright.config.ts ${flags} && echo ${PASS_MARKER}`.trim();
+  console.debug(`Running ${command}`);
 
-      console.debug(`Running ${command}`);
-
-      const { stdout, stderr } = await promisify(exec)(command);
-
+  const success = await new Promise<boolean>((resolve, reject) => {
+    exec(command, (error, stdout) => {
       console.info(`Playwright output ${stdout}`);
-      if (stderr) {
-        console.error(`Playwright errors ${stderr}`);
+      if (error) {
+        reject(error);
       }
-
-      return stdout.includes(PASS_MARKER);
-    })
-    .catch((error) => {
-      console.error('Unexpected error', error);
-      return false;
+      resolve(stdout.trim().includes(PASS_MARKER));
     });
-
+  });
   return { success };
 }
